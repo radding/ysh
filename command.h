@@ -37,16 +37,27 @@ public:
     void setRunForeground(bool run) { runForeground = run; }
     virtual ErrorCodes run();
     virtual void gotSignal(int);
+    void setType(std::string type) { this->type = type; }
+    std::string getType() { return type; }
+    std::vector<std::string> getArgs() { return args;}
+    void _makeFileDescriptors();
+    void _makeFileDesciptors(int *fds);
+    void _SetFDDir(int dir);
 
 protected:
     virtual ErrorCodes _runParentProcess(pid_t childPid);
     virtual ErrorCodes _runChildProcess(char **argv);
+    int fd[2];
+    bool hasFD = false;
 	std::string commandName;
 	std::vector<std::string > args;
+    std::string type = "command";
     ErrorCodes status;
     bool runForeground;
+
 private:
     pid_t childPID;
+    int direction = -1;
 };
 
 

@@ -3,8 +3,10 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <stack>
 
 class Command;
+class DoubleCmd;
 
 enum TokenType {
     CMD = 0,
@@ -13,7 +15,8 @@ enum TokenType {
     LEFT = 3,
     RIGHT = 4,
     BACKGROUND=5,
-    TWO=6
+    TWO=6,
+    DELIM=7
 };
 
 class Parser
@@ -47,5 +50,11 @@ public:
     }
 
 private:
-    Node *root;
+    std::vector <Node *> nodes;
+    bool _buildAST(std::vector<Token *>::iterator pos, std::vector<Token *>::iterator end, Node *parent);
+    std::vector <Token *> tokenizer;
+    bool _parseCMD(Node *node, std::vector<Token *>::iterator &iter, std::vector<Token *> &tokens);
+    void _dfs(Node *node, std::vector<Command *> &coms, std::vector<Node *> &discovered, Command * cmd, Command *curCMD, std::stack <DoubleCmd *> &doubleCmds);
+    bool _parseArgs(Node *node, std::vector<Token *>::iterator &iter, std::vector<Token *> &tokens);
+    Node *root = new Node;
 };

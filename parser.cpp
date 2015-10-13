@@ -8,14 +8,16 @@
 #include "parser.h"
 
 #include <queue>
-#include <stack>
 #include <algorithm>
 
 #include "background.h"
 #include "DoubleCmd.h"
 #include "command.h"
+#include "pipe.h"
+#include "file.h"
 
 using namespace std;
+
 /**
  * Constructor
  *
@@ -26,113 +28,264 @@ using namespace std;
  */
 Parser::Parser(vector<string> commands)
 {   
-    root = nullptr;
     TokenType currentType = CMD;
-    Node *parent = nullptr;
-
+    Token *lastCMD;
+    
+    //Tokenize input string
     for (auto cmd : commands){
         if (cmd == "" || cmd == " ") continue;
-        Node *node = new Node;
-        node->token.type = currentType;
-        if(nullptr == root){
-            root = node;
-            parent = root;
+        Token *curToken = new Token;
+        curToken->type = currentType;
+        if(currentType == CMD){
+            lastCMD = curToken;
             currentType = ARG;
         }
-        if(currentType == CMD)
-            currentType = ARG;
         if(cmd == "&"){
-            parent->token.type = BACKGROUND;
-            delete node;
+            lastCMD->type = BACKGROUND;
             continue;
         }
         if(cmd.find(";") != string::npos){
             currentType = CMD;
-            cmd.erase(cmd.find(";"));
-            if (cmd == "" || cmd == " "){
-                delete node;
-                continue;
+            size_t loc = cmd.find(';');
+            cmd.erase(loc);
+            Token *tok = new Token;
+            tok->type = DELIM;
+            curToken->value = cmd;
+            tokenizer.push_back(curToken);
+            tokenizer.push_back(tok);
+            if (cmd==" " || cmd == ""){
+                delete curToken;
             }
-            else{
-                parent->children.push_back(node);
-                node->parent = parent;
-            }
-            parent = root;
-        }
-        if(cmd.find("&&") != string::npos){
-            node->token.type = TWO;
-            Node *lastNode = parent->children.back();
-            parent->children.pop_back();
-            node->children.push_back(lastNode);
-            parent->children.push_back(node);
-            parent = node;
-            currentType = CMD;
             continue;
         }
-        else{
-            parent->children.push_back(node);
-            node->parent = parent;
+        if(cmd.find("&&") != string::npos){
+            curToken->type = TWO;
+            currentType = CMD;
+            tokenizer.push_back(curToken);
+            continue;
         }
-        node->token.value = cmd;
+        if(cmd.find(">") != string::npos){
+            curToken->type = RIGHT;
+            currentType = CMD;
+            tokenizer.push_back(curToken);
+            continue;
+        }
+        if(cmd.find("|") != string::npos){
+            curToken->type = PIPE;
+            currentType = CMD;
+            tokenizer.push_back(curToken);
+            continue;
+        }
+        curToken->value = cmd;
+        tokenizer.push_back(curToken);
     }
+
+    //Convert to some sort of Syntax Tree 
+    _buildAST(tokenizer.begin(), tokenizer.end(), root);
 }
 
+bool Parser::_buildAST(vector<Token *>::iterator pos, vector<Token *>::iterator end, Node *parent){
+    Node *node = nullptr;
+    if(pos == end) return true;
+    auto token = (*pos);
+    switch(token->type){
+        case CMD:{
+            node = new Node;
+            node->token = *token;
+            node->parent = parent;
+            parent->children.push_back(node);
+            if(_buildAST(++pos, end, node)) return true;
+            else return _buildAST(++pos, end, parent);
+
+            break;
+        }
+        case BACKGROUND: {
+            node = new Node;
+            node->token = *token;
+            parent->children.push_back(node);
+            node->parent = parent;
+
+            if(_buildAST(++pos, end, node)) return true;
+            else return _buildAST(++pos, end, parent);
+
+            break;
+        }
+        case ARG: {
+            node = new Node;
+            node->token = *token;
+            node->parent = parent;
+            parent->children.push_back(node);
+            return _buildAST(++pos, end, parent);
+            break;
+        }
+        case DELIM: {
+            return false;
+            break;
+        }
+        case PIPE: {
+            node = new Node;
+            node->token = *token;
+            Node *par = parent->parent;
+            Node *lastCMD = parent;
+            par->children.pop_back();
+            par->children.push_back(node);
+            node->children.push_back(lastCMD);
+            node->parent = par;
+            lastCMD->parent = node;
+            if(_buildAST(++pos, end, node)) return true;
+            else{
+                return _buildAST(++pos, end, parent);
+            }
+
+            break;
+        }
+        case TWO: {
+            node = new Node;
+            node->token = *token;
+            Node *par = parent->parent;
+            Node *lastCMD = parent;
+            par->children.pop_back();
+            par->children.push_back(node);
+            node->children.push_back(lastCMD);
+            node->parent = par;
+            lastCMD->parent = node;
+            if(_buildAST(++pos, end, node)) return true;
+            else{
+                return _buildAST(++pos, end, parent);
+            }
+
+            break;
+        }
+        case RIGHT: {
+            node = new Node;
+            node->token = *token;
+            Node *par = parent->parent;
+            Node *lastCMD = parent;
+            par->children.pop_back();
+            par->children.push_back(node);
+            node->children.push_back(lastCMD);
+            node->parent = par;
+            lastCMD->parent = node;
+            _buildAST(pos+1, pos+2, node); 
+            break;
+            
+        }
+    }
+    return true;
+}
+
+bool Parser::_parseArgs(Parser::Node *node, vector<Token *>::iterator &iter, vector<Token *> &tokens){
+    for(;iter != tokens.end() && (*iter)->type == ARG; iter++) {
+        Node *argNode = new Node;
+        argNode->token = *(*iter);
+    }
+    return true;
+}
+
+bool Parser::_parseCMD(Parser::Node *node, vector<Token *>::iterator &iter, vector<Token *> &tokens){
+    
+    for(; (*iter)->type == ARG && iter != tokens.end(); iter ++){
+        Node *cmdArg = new Node;
+        cmdArg->token = *(*iter);
+        node->children.push_back(cmdArg);
+    }
+    if(iter == tokens.end()) return false;
+    if((*iter)->type == TWO || (*iter)->type == PIPE){
+        Node *secondTwo = new Node;
+        secondTwo->token = *(*iter);
+        iter ++;
+        if((*iter)->type == CMD)
+        {
+            Node *nextCMD = new Node;
+            nextCMD->token = *(*iter);
+            _parseCMD(nextCMD, iter, tokens);
+            node->children.push_back(nextCMD);
+        }
+    }
+
+    return true;
+}
+
+void Parser::_dfs(Node *node, vector<Command *> &coms, vector<Node *> &discovered, Command * cmd, Command *curCMD, stack <DoubleCmd *> &doubleCmds){
+    discovered.push_back(node);
+    
+    switch (node->token.type){
+        case CMD: {
+            cmd = new Command();
+            if(!doubleCmds.empty()){
+                DoubleCmd *bCMD = doubleCmds.top();
+                if(!bCMD->cmdsFilled())
+                    bCMD->addCmd(cmd);
+                if(bCMD->cmdsFilled())
+                    doubleCmds.pop();
+
+            }
+            else {
+                curCMD = cmd;
+                coms.push_back(cmd);
+            }
+            cmd->setName(node->token.value);
+            break;
+        }
+        case ARG:  {
+            cmd->addArg(node->token.value);
+            break;
+        }
+        case BACKGROUND: {
+            cmd = new BackgroundCommand();
+            cmd->setName(node->token.value);
+            coms.push_back(cmd);
+            break;
+        }
+        case TWO: {
+            cmd = new DoubleCmd();
+            if (!doubleCmds.empty()){
+                DoubleCmd *oldOne = doubleCmds.top();
+                oldOne->addCmd(cmd);
+                if(oldOne->cmdsFilled())
+                    doubleCmds.pop();
+            }
+            doubleCmds.push(dynamic_cast<DoubleCmd *>(cmd));
+            cmd->setType("double");
+            coms.push_back(cmd);
+            break;
+        }
+        case PIPE: {
+            cmd = new Pipe();
+            if (!doubleCmds.empty()){
+                DoubleCmd *oldOne = doubleCmds.top();
+                oldOne->addCmd(cmd);
+                if(oldOne->cmdsFilled())
+                    doubleCmds.pop();
+            }
+            doubleCmds.push(dynamic_cast<DoubleCmd *>(cmd));
+            cmd->setType("double");
+            coms.push_back(cmd);
+            break;
+        }
+        case RIGHT: {
+           cmd = new Right(node->children.back()->token.value);
+           coms.push_back(cmd);
+            cmd->setName(node->token.value);
+           break;
+        }
+    }
+
+    for(auto i : node->children){
+        if(find(discovered.begin(), discovered.end(), i) == discovered.end())
+            _dfs(i, coms, discovered, cmd, curCMD, doubleCmds);
+    }
+}
 /** 
  * takes the nodes from the parser and builds commands from that by doing a depth first search
  */
 std::vector<Command *> Parser::getAllCommands()
 {
-    queue <Node *> toVisit;
-    stack <DoubleCmd *> doubleCMDs;
-    vector <Node *> visited;
-    vector <Command *> commands;
-    toVisit.push(root);
-    Command *cmd = nullptr;
-    while(!toVisit.empty()){
-        Node *node = toVisit.front();
-        toVisit.pop();
-        TokenType nodeType = node->token.type;
-        switch(nodeType){
-            case(CMD): {
-                cmd = new Command();
-                cmd->setName(node->token.value);
-                if(!doubleCMDs.empty()) {
-                    doubleCMDs.top()->addCmd(cmd);
-                    if(doubleCMDs.top()->cmdsFilled())
-                        doubleCMDs.pop();
-                }
-                else {
-                    commands.push_back(cmd);
-                  }
-                break;
-            }
-            case(BACKGROUND):
-                cmd = new BackgroundCommand();
-                cmd->setName(node->token.value);
-                commands.push_back(cmd);
-                break;
-            case(ARG):
-                cmd->addArg(node->token.value);
-                break;
-            case(TWO): {
-                DoubleCmd *dCmd= new DoubleCmd();
-                doubleCMDs.push(dCmd);
-                Command *prevCmd = commands.back();
-                dCmd->addCmd(prevCmd);
-                commands.pop_back();
-                commands.push_back(dCmd);
-                break;
-            }
-            default:
-                break;
-        }
-    visited.push_back(node);
-    for (auto i : node->children){
-        if(find(visited.begin(), visited.end(), i) == visited.end())
-            {
-                toVisit.push(i);   
-            }
-        }
+    vector<Command *> commands;
+    vector<Node *> discovered;
+    stack <DoubleCmd *> doubleCmds;
+    for(auto i : root->children){
+        _dfs(i, commands, discovered, nullptr, nullptr, doubleCmds);       
     }
     return commands;
 }
@@ -141,7 +294,7 @@ Parser::~Parser()
 {
     queue<Node *> nodes;
     vector<Node *> discovered;
-    nodes.push(root);
+    //nodes.push(root);
     while (!nodes.empty())
     {
         Node *node = nodes.front();

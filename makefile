@@ -8,7 +8,7 @@ DEBUG=-g
 SOURCES=main.cpp\
 	   	parser.cpp\
 	   	command.cpp\
-	   	shell.cpp\
+	  	shell.cpp\
 	   	history.cpp\
 	   	builtin.cpp\
 	   	plugins/hist.cpp\
@@ -16,7 +16,10 @@ SOURCES=main.cpp\
 		plugins/echo.cpp\
 	   	plugins/changedir.cpp\
 		background.cpp\
-		DoubleCmd.cpp
+		DoubleCmd.cpp\
+		pipe.cpp\
+		file.cpp
+
 OBJDIR=.build
 OBJECTS=$(patsubst %.cpp, $(OBJDIR)/%.o, $(SOURCES))
 EXECUTABLE=PROG2

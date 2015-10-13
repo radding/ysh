@@ -115,7 +115,8 @@ int Shell::runShell(){
                         break;
                 }
             }
-            currentlyRunningCMD = nullptr;
+            if(currentlyRunningCMD != nullptr)
+                currentlyRunningCMD = nullptr;
         }
         commandsRun ++;
     }
@@ -135,8 +136,23 @@ void Shell::didRecieveSignal(int signal){
     }
 }
 
-int Shell::runCommand(vector<string> cmds){
-    return 0;
+int Shell::runCommand(vector<string> commands){
+  if(manager->run(commands[0], commands) != NOPROGRAM) return 0;
+  vector<Command *> cmds = Parser::BuildCommands(commands);
+  for (auto cmd : cmds){
+    currentlyRunningCMD = cmd;
+    switch (cmd->run()){
+        case (NOPROGRAM):
+            cout << "Error: " << commands[0] << " command not found" << endl;
+            break;
+        case (SEGFAULT):
+            cout << "Segmentation Fault" << endl;
+            break;
+        default:
+            break;
+      }
+  }
+  return 0;
 }
 
 void Shell::addToHistory(Command *cmd){

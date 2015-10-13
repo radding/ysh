@@ -38,6 +38,17 @@ void Command::printCommand(ostream &stream, bool debug)
     }
 }
 
+void Command::_makeFileDescriptors(){
+    int x[2];
+    pipe(x);
+    _makeFileDesciptors(x);
+}
+
+void Command::_SetFDDir(int dir){
+    direction = dir;
+}
+
+
 ErrorCodes Command::run(){
     Shell *shell = Shell::sharedShell();
     childPID = fork();
@@ -72,6 +83,8 @@ ErrorCodes Command::run(){
 ErrorCodes Command::_runParentProcess(pid_t childPid){
     int status;
     //Wait for child to end.
+    if(hasFD){
+    }
     while(-1 == waitpid(childPid, &status, 0)) {
     }
     //add to history.
@@ -94,12 +107,35 @@ ErrorCodes Command::_runParentProcess(pid_t childPid){
 
 ErrorCodes Command::_runChildProcess(char **argv){
     ErrorCodes exitCode = GOOD;
+    int STDIN;
+    int STDOUT;
+    //if(direction == 0)
+    //   STDIN = dup(STDIN_FILENO);
+    //if(direction == 1)
+    //   STDOUT = dup(STDOUT_FILENO);
+    if(hasFD) {
+        cout << direction << endl;
+        dup2(fd[direction], direction);
+    }
     if (execvp(argv[0], argv) < 0){
         exitCode = static_cast<ErrorCodes>(errno);
     }
+    //if(hasFD){
+    //  if(direction == 0)
+    //    dup2(STDIN, 0);
+    //  if(direction == 1)
+    //    dup2(STDOUT, 1);
+    //}
     return exitCode;
 }
 
 void Command::gotSignal(int sig){
     kill(childPID, sig);
+}
+
+
+void Command::_makeFileDesciptors(int *fds){
+    fd[0] = fds[0];
+    fd[1] = fds[1];
+    hasFD = true;
 }
